@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "required": ["decisionId", "createdAt", "task", "taskClass", "routeType", "modelTier", "approvalRequired", "reason"],
+  "properties": {
+    "decisionId": {"type": "string", "description": "Unique decision identifier with rd_ prefix."},
+    "createdAt": {"type": "string", "description": "ISO 8601 timestamp."},
+    "task": {"type": "string", "description": "Original task text."},
+    "taskClass": {"type": "string", "description": "Classified task class id."},
+    "routeType": {"type": "string", "enum": ["WORKFLOW", "SPECIALIST_AGENT", "MANUAL_PLAN_FIRST"]},
+    "workflowId": {"type": "string", "description": "Workflow id if routeType is WORKFLOW, null otherwise."},
+    "specialistId": {"type": "string", "description": "Assigned specialist id."},
+    "modelTier": {"type": "string", "enum": ["free", "cheap", "balanced", "expensive", "blocked"]},
+    "selectedModelId": {"type": "string", "description": "Selected model id."},
+    "maxAllowedMultiplier": {"type": "number", "description": "Max premium request multiplier allowed for this route."},
+    "estimatedCostClass": {"type": "string", "description": "Estimated cost class (same as modelTier)."},
+    "approvalRequired": {"type": "boolean", "description": "Whether user approval is required before proceeding."},
+    "approvalReason": {"type": "string", "description": "Why approval is required, if applicable."},
+    "riskLevel": {"type": "string", "enum": ["low", "medium", "high"]},
+    "complexity": {"type": "string", "enum": ["low", "medium", "high"]},
+    "blastRadius": {"type": "string", "enum": ["low", "medium", "high"]},
+    "allowedTools": {"type": "array", "items": {"type": "string"}, "description": "Tools allowed for this route."},
+    "requiredMemory": {"type": "array", "items": {"type": "string"}, "description": "Memory recall modes required."},
+    "requiredChecks": {"type": "array", "items": {"type": "string"}, "description": "Required checks to run."},
+    "reason": {"type": "string", "description": "Human-readable routing rationale."},
+    "fallbackUsed": {"type": "boolean", "description": "Whether the unknown task class fallback was used."},
+    "blocked": {"type": "boolean", "description": "Whether the route is blocked."},
+    "blockReason": {"type": "string", "description": "Why the route is blocked, if applicable."},
+    "nextStep": {"type": "string", "description": "Recommended next action for the caller."}
+  }
+}

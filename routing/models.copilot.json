@@ -1,0 +1,44 @@
+{
+  "models": [
+    {
+      "id": "gpt-mini",
+      "displayName": "GPT-4o mini",
+      "vendor": "openai",
+      "tier": "cheap",
+      "premiumRequestMultiplier": 0.5,
+      "strengths": ["fast", "cheap", "simple edits", "documentation", "short tasks"],
+      "weaknesses": ["complex multi-step reasoning", "large context tasks"],
+      "requiresApproval": false
+    },
+    {
+      "id": "gpt-balanced",
+      "displayName": "GPT-4o",
+      "vendor": "openai",
+      "tier": "balanced",
+      "premiumRequestMultiplier": 1.0,
+      "strengths": ["balanced capability", "code editing", "test diagnosis", "medium complexity"],
+      "weaknesses": ["expensive for trivial tasks", "not ideal for deep architecture"],
+      "requiresApproval": false
+    },
+    {
+      "id": "claude-sonnet",
+      "displayName": "Claude Sonnet",
+      "vendor": "anthropic",
+      "tier": "balanced",
+      "premiumRequestMultiplier": 1.0,
+      "strengths": ["code quality", "reasoning", "documentation", "structured output"],
+      "weaknesses": ["slower for trivial tasks compared to mini models"],
+      "requiresApproval": false
+    },
+    {
+      "id": "claude-opus",
+      "displayName": "Claude Opus",
+      "vendor": "anthropic",
+      "tier": "expensive",
+      "premiumRequestMultiplier": 5.0,
+      "strengths": ["deep reasoning", "complex architecture", "long-horizon tasks", "nuanced judgment"],
+      "weaknesses": ["expensive", "slow", "overkill for routine tasks"],
+      "requiresApproval": true
+    }
+  ]
+}

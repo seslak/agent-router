@@ -1,0 +1,103 @@
+{
+  "defaultPolicy": {
+    "unknownModelBehavior": "block",
+    "unknownMultiplierBehavior": "treat_as_expensive",
+    "preferCheapestCapableModel": true,
+    "requireReasonForEscalation": true,
+    "requireApprovalForExpensive": true,
+    "maxDefaultMultiplier": 1
+  },
+  "taskPolicies": {
+    "small_code_edit": {
+      "maxMultiplier": 1,
+      "preferredSpecialist": "code-editor",
+      "maxTier": "cheap"
+    },
+    "documentation_update": {
+      "maxMultiplier": 1,
+      "preferredSpecialist": "doc-writer",
+      "maxTier": "cheap"
+    },
+    "test_failure_simple": {
+      "maxMultiplier": 2,
+      "preferredSpecialist": "test-fixer",
+      "maxTier": "balanced"
+    },
+    "test_failure_repeated": {
+      "maxMultiplier": 3,
+      "preferredSpecialist": "test-fixer",
+      "maxTier": "balanced",
+      "minTier": "balanced"
+    },
+    "cross_package_design": {
+      "maxMultiplier": 3,
+      "preferredSpecialist": "architect",
+      "maxTier": "balanced"
+    },
+    "major_agentic_architecture": {
+      "maxMultiplier": 15,
+      "preferredSpecialist": "deep-architect",
+      "maxTier": "expensive"
+    },
+    "memory_feedback": {
+      "maxMultiplier": 1,
+      "preferredSpecialist": "memory-feedback-writer",
+      "maxTier": "cheap"
+    },
+    "document_ingestion": {
+      "maxMultiplier": 1,
+      "preferredSpecialist": "doc-writer",
+      "maxTier": "cheap"
+    },
+    "unknown": {
+      "maxMultiplier": 2,
+      "preferredSpecialist": "architect",
+      "maxTier": "balanced"
+    },
+    "context_inspection": {
+      "maxMultiplier": 1,
+      "preferredSpecialist": "tooling-integrator",
+      "maxTier": "cheap"
+    },
+    "alias_curation": {
+      "maxMultiplier": 1,
+      "preferredSpecialist": "memory-feedback-writer",
+      "maxTier": "cheap"
+    }
+  },
+  "escalationRules": [
+    {
+      "condition": "repeated_failure",
+      "escalateTo": "balanced",
+      "requireReason": true
+    },
+    {
+      "condition": "architecture_decision",
+      "escalateTo": "expensive",
+      "requireReason": true,
+      "requireApproval": true
+    }
+  ],
+  "approvalRules": [
+    {
+      "condition": "tier_expensive",
+      "approvalRequired": true,
+      "reason": "Expensive model tier requires approval before use."
+    },
+    {
+      "condition": "model_requires_approval",
+      "approvalRequired": true,
+      "reason": "Selected model requires explicit approval."
+    },
+    {
+      "condition": "specialist_approval_always",
+      "approvalRequired": true,
+      "reason": "Specialist policy requires approval for all routes."
+    }
+  ],
+  "fallbackPolicy": {
+    "onNoModelFound": "block",
+    "onUnknownTaskClass": "use_unknown_class",
+    "onMissingSpecialist": "use_architect"
+  }
+}

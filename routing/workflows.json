@@ -1,0 +1,606 @@
+{
+  "workflows": [
+    {
+      "id": "workflow.context-inspection",
+      "aliases": [
+        "context-inspection",
+        "workflow-context-inspection"
+      ],
+      "description": "Inspect bounded workspace context without source edits.",
+      "taskClasses": [
+        "context_inspection"
+      ],
+      "profile": "analysis",
+      "specialistId": "tooling-integrator",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "thrift.workspace_info",
+        "thrift.find_files",
+        "thrift.grep_text",
+        "thrift.rank_files",
+        "thrift.file_window"
+      ],
+      "requiresEdit": false,
+      "requiresExecute": false,
+      "maxTargetFiles": 12,
+      "riskDefault": "low",
+      "requiredChecks": [
+        "governor.patch_check"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "notes"
+        ]
+      },
+      "stopConditions": [
+        "source edit required",
+        "architecture decision required"
+      ],
+      "finalReportFields": [
+        "files_inspected",
+        "key_findings"
+      ]
+    },
+    {
+      "id": "workflow.memory-feedback",
+      "aliases": [
+        "memory-feedback",
+        "workflow-memory-feedback"
+      ],
+      "description": "Capture feedback and durable memory candidates for completed work.",
+      "taskClasses": [
+        "memory_feedback"
+      ],
+      "profile": "general_work",
+      "specialistId": "memory-feedback-writer",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "mnemo.search",
+        "mnemo.record",
+        "mnemo.get"
+      ],
+      "requiresEdit": false,
+      "requiresExecute": false,
+      "maxTargetFiles": 0,
+      "riskDefault": "low",
+      "requiredChecks": [],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "result_summary",
+          "domain",
+          "notes"
+        ]
+      },
+      "stopConditions": [
+        "code changes requested"
+      ],
+      "finalReportFields": [
+        "memory_ids",
+        "feedback_summary"
+      ]
+    },
+    {
+      "id": "workflow.alias-curation",
+      "aliases": [
+        "alias-curation",
+        "workflow-alias-curation",
+        "curate-aliases",
+        "alias-proposals"
+      ],
+      "description": "Review Mnemo alias proposals and curate approved aliases into Mnemo SQLite.",
+      "taskClasses": [
+        "alias_curation"
+      ],
+      "profile": "maintenance_work",
+      "specialistId": "memory-feedback-writer",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "mnemo.maintenance",
+        "mnemo.doctor"
+      ],
+      "requiresEdit": false,
+      "requiresExecute": false,
+      "maxTargetFiles": 0,
+      "riskDefault": "low",
+      "requiredChecks": [],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "domain",
+          "language",
+          "window_days",
+          "min_recurrence",
+          "limit",
+          "notes"
+        ]
+      },
+      "stopConditions": [
+        "proposal evidence is weak",
+        "alias is generic or low-IDF",
+        "domain or language scope is ambiguous"
+      ],
+      "finalReportFields": [
+        "proposal_preview",
+        "persisted_proposals",
+        "approved_aliases",
+        "rejected_proposals",
+        "deferred_proposals",
+        "verification"
+      ]
+    },
+    {
+      "id": "workflow.docs-sync",
+      "aliases": [
+        "docs-sync",
+        "workflow-docs-sync"
+      ],
+      "description": "Synchronize repository documentation with implemented behavior.",
+      "taskClasses": [
+        "documentation_update"
+      ],
+      "profile": "documentation_write",
+      "specialistId": "doc-writer",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "edit",
+        "read",
+        "search"
+      ],
+      "requiresEdit": true,
+      "requiresExecute": false,
+      "maxTargetFiles": 8,
+      "riskDefault": "low",
+      "requiredChecks": [
+        "governor.patch_check"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "notes"
+        ]
+      },
+      "stopConditions": [
+        "implementation change required"
+      ],
+      "finalReportFields": [
+        "files_updated",
+        "doc_coverage"
+      ]
+    },
+    {
+      "id": "workflow.small-refactor",
+      "aliases": [
+        "small-refactor",
+        "workflow-small-refactor"
+      ],
+      "description": "Small deterministic one-file or bounded code change.",
+      "taskClasses": [
+        "small_code_edit"
+      ],
+      "profile": "small_patch",
+      "specialistId": "code-editor",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "edit",
+        "read",
+        "search"
+      ],
+      "requiresEdit": true,
+      "requiresExecute": false,
+      "maxTargetFiles": 3,
+      "riskDefault": "low",
+      "requiredChecks": [
+        "governor.patch_check"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "runtime_available",
+          "notes"
+        ]
+      },
+      "stopConditions": [
+        "more than max target files",
+        "public API change required"
+      ],
+      "finalReportFields": [
+        "files_changed",
+        "patch_summary"
+      ]
+    },
+    {
+      "id": "workflow.test-failure-triage",
+      "aliases": [
+        "test-failure-triage",
+        "workflow-test-failure-triage"
+      ],
+      "description": "Triage failing tests and apply the smallest safe fix.",
+      "taskClasses": [
+        "test_failure_simple"
+      ],
+      "profile": "debug_failure",
+      "specialistId": "test-fixer",
+      "modelTier": "balanced",
+      "maxMultiplier": 3,
+      "allowedTools": [
+        "nexus",
+        "edit",
+        "read",
+        "search",
+        "execute"
+      ],
+      "requiresEdit": true,
+      "requiresExecute": true,
+      "maxTargetFiles": 6,
+      "riskDefault": "medium",
+      "requiredChecks": [
+        "governor.record_test",
+        "governor.patch_check"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "failing_tests",
+          "runtime_available"
+        ]
+      },
+      "stopConditions": [
+        "test still failing after two attempts",
+        "root cause requires architecture work"
+      ],
+      "finalReportFields": [
+        "tests_run",
+        "fix_summary"
+      ]
+    },
+    {
+      "id": "workflow.maintenance-prompt-audit",
+      "aliases": [
+        "maintenance-prompt-audit",
+        "workflow-maintenance-prompt-audit"
+      ],
+      "description": "Audit prompt packs for consistency, scope, and stale references.",
+      "profile": "maintenance_work",
+      "specialistId": "tooling-integrator",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "read",
+        "search"
+      ],
+      "requiresEdit": false,
+      "requiresExecute": false,
+      "maxTargetFiles": 20,
+      "riskDefault": "low",
+      "requiredChecks": [],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "notes"
+        ]
+      },
+      "stopConditions": [],
+      "finalReportFields": [
+        "findings",
+        "recommendations"
+      ]
+    },
+    {
+      "id": "workflow.maintenance-schema-audit",
+      "aliases": [
+        "maintenance-schema-audit",
+        "workflow-maintenance-schema-audit"
+      ],
+      "description": "Audit MCP schemas for Copilot-safe compatibility and drift.",
+      "profile": "maintenance_work",
+      "specialistId": "tooling-integrator",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "read",
+        "search",
+        "execute"
+      ],
+      "requiresEdit": false,
+      "requiresExecute": true,
+      "maxTargetFiles": 24,
+      "riskDefault": "medium",
+      "requiredChecks": [
+        "check_mcp_schemas"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "runtime_available"
+        ]
+      },
+      "stopConditions": [],
+      "finalReportFields": [
+        "schema_issues",
+        "remediation"
+      ]
+    },
+    {
+      "id": "workflow.maintenance-state-cleanup",
+      "aliases": [
+        "maintenance-state-cleanup",
+        "workflow-maintenance-state-cleanup"
+      ],
+      "description": "Clean stale runtime state artifacts while preserving source content.",
+      "profile": "maintenance_work",
+      "specialistId": "tooling-integrator",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "read",
+        "execute"
+      ],
+      "requiresEdit": false,
+      "requiresExecute": true,
+      "maxTargetFiles": 50,
+      "riskDefault": "medium",
+      "requiredChecks": [
+        "governor.patch_check"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "notes"
+        ]
+      },
+      "stopConditions": [
+        "non-state source files would be removed"
+      ],
+      "finalReportFields": [
+        "removed_paths",
+        "safety_notes"
+      ]
+    },
+    {
+      "id": "workflow.maintenance-mnemo",
+      "aliases": [
+        "maintenance-mnemo",
+        "workflow-maintenance-mnemo"
+      ],
+      "description": "Maintain Mnemo indices, event surfaces, and memory hygiene tasks.",
+      "profile": "maintenance_work",
+      "specialistId": "tooling-integrator",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "read",
+        "search",
+        "edit",
+        "execute"
+      ],
+      "requiresEdit": true,
+      "requiresExecute": true,
+      "maxTargetFiles": 12,
+      "riskDefault": "medium",
+      "requiredChecks": [
+        "governor.patch_check",
+        "governor.record_test"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "runtime_available"
+        ]
+      },
+      "stopConditions": [],
+      "finalReportFields": [
+        "changes",
+        "test_outcomes"
+      ]
+    },
+    {
+      "id": "workflow.maintenance-thrift-economy",
+      "aliases": [
+        "maintenance-thrift-economy",
+        "workflow-maintenance-thrift-economy"
+      ],
+      "description": "Maintain Thrift context-economy and retrieval heuristics.",
+      "profile": "maintenance_work",
+      "specialistId": "tooling-integrator",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "read",
+        "search",
+        "edit",
+        "execute"
+      ],
+      "requiresEdit": true,
+      "requiresExecute": true,
+      "maxTargetFiles": 12,
+      "riskDefault": "medium",
+      "requiredChecks": [
+        "governor.patch_check",
+        "governor.record_test"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "runtime_available"
+        ]
+      },
+      "stopConditions": [],
+      "finalReportFields": [
+        "changes",
+        "test_outcomes"
+      ]
+    },
+    {
+      "id": "workflow.maintenance-governor-ledger",
+      "aliases": [
+        "maintenance-governor-ledger",
+        "workflow-maintenance-governor-ledger"
+      ],
+      "description": "Maintain Governor ledger schemas, status logic, and query APIs.",
+      "profile": "maintenance_work",
+      "specialistId": "tooling-integrator",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "read",
+        "search",
+        "edit",
+        "execute"
+      ],
+      "requiresEdit": true,
+      "requiresExecute": true,
+      "maxTargetFiles": 14,
+      "riskDefault": "medium",
+      "requiredChecks": [
+        "governor.patch_check",
+        "governor.record_test"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "runtime_available"
+        ]
+      },
+      "stopConditions": [],
+      "finalReportFields": [
+        "changes",
+        "test_outcomes"
+      ]
+    },
+    {
+      "id": "workflow.maintenance-nexus-health",
+      "aliases": [
+        "maintenance-nexus-health",
+        "workflow-maintenance-nexus-health"
+      ],
+      "description": "Maintain Nexus gateway health, action wiring, and middleware behavior.",
+      "profile": "maintenance_work",
+      "specialistId": "tooling-integrator",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "read",
+        "search",
+        "edit",
+        "execute"
+      ],
+      "requiresEdit": true,
+      "requiresExecute": true,
+      "maxTargetFiles": 14,
+      "riskDefault": "medium",
+      "requiredChecks": [
+        "governor.patch_check",
+        "governor.record_test"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "target_files",
+          "runtime_available"
+        ]
+      },
+      "stopConditions": [],
+      "finalReportFields": [
+        "changes",
+        "test_outcomes"
+      ]
+    },
+    {
+      "id": "workflow.ingest-document",
+      "aliases": [
+        "ingest-document",
+        "workflow-ingest-document"
+      ],
+      "description": "Ingest external documents/specs into project context.",
+      "taskClasses": [
+        "document_ingestion"
+      ],
+      "profile": "data_intake",
+      "specialistId": "doc-writer",
+      "modelTier": "cheap",
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "nexus",
+        "edit",
+        "read"
+      ],
+      "requiresEdit": true,
+      "requiresExecute": false,
+      "maxTargetFiles": 10,
+      "riskDefault": "low",
+      "requiredChecks": [
+        "governor.patch_check"
+      ],
+      "paramSchema": {
+        "required": [
+          "task_summary"
+        ],
+        "optional": [
+          "source",
+          "target_files"
+        ]
+      },
+      "stopConditions": [
+        "requires runtime extraction pipeline"
+      ],
+      "finalReportFields": [
+        "sources_ingested",
+        "outputs"
+      ]
+    }
+  ]
+}

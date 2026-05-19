@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "router": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}/agent-router/server.py"
+      ],
+      "env": {
+        "AGENT_ROUTER_STATE_DIR": "${workspaceFolder}/state/router",
+        "AGENT_ROUTER_WORKSPACE_ROOT": "${workspaceFolder}"
+      }
+    }
+  }
+}

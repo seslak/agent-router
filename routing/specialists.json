@@ -1,0 +1,262 @@
+{
+  "specialists": [
+    {
+      "id": "code-editor",
+      "description": "Handles small, safe, single-file code edits: renames, imports, formatting, local fixes.",
+      "responsibilities": [
+        "rename symbols",
+        "add or update imports",
+        "fix formatting",
+        "apply small patches",
+        "one-file refactors",
+        "update config keys"
+      ],
+      "forbiddenResponsibilities": [
+        "architecture decisions",
+        "cross-package changes",
+        "public API changes",
+        "database schema changes"
+      ],
+      "defaultTier": "cheap",
+      "allowedTiers": [
+        "free",
+        "cheap"
+      ],
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "edit",
+        "create",
+        "read",
+        "search"
+      ],
+      "contextPolicy": "minimal",
+      "approvalPolicy": "none",
+      "memoryPolicy": "recall_startup"
+    },
+    {
+      "id": "test-fixer",
+      "description": "Diagnoses and fixes failing or flaky tests. Escalates to balanced tier for repeated failures.",
+      "responsibilities": [
+        "diagnose failing tests",
+        "fix test assertions",
+        "fix test setup",
+        "investigate flakiness",
+        "run targeted test suites"
+      ],
+      "forbiddenResponsibilities": [
+        "architecture decisions",
+        "cross-package redesign",
+        "production code architecture"
+      ],
+      "defaultTier": "cheap",
+      "allowedTiers": [
+        "free",
+        "cheap",
+        "balanced"
+      ],
+      "maxMultiplier": 3,
+      "allowedTools": [
+        "edit",
+        "read",
+        "search",
+        "run_tests"
+      ],
+      "contextPolicy": "bounded",
+      "approvalPolicy": "if_expensive",
+      "memoryPolicy": "recall_startup"
+    },
+    {
+      "id": "doc-writer",
+      "description": "Writes and updates documentation, READMEs, changelogs, and docstrings.",
+      "responsibilities": [
+        "write documentation",
+        "update README",
+        "write changelog entries",
+        "write docstrings",
+        "generate release notes",
+        "ingest external documents"
+      ],
+      "forbiddenResponsibilities": [
+        "code implementation",
+        "architecture decisions",
+        "test implementation"
+      ],
+      "defaultTier": "cheap",
+      "allowedTiers": [
+        "free",
+        "cheap"
+      ],
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "edit",
+        "create",
+        "read"
+      ],
+      "contextPolicy": "minimal",
+      "approvalPolicy": "none",
+      "memoryPolicy": "recall_startup"
+    },
+    {
+      "id": "tooling-integrator",
+      "description": "Integrates tooling, CI config, build scripts, and package setup.",
+      "responsibilities": [
+        "configure CI",
+        "set up build scripts",
+        "wire up scripts",
+        "package config",
+        "MCP config updates",
+        "integration wiring"
+      ],
+      "forbiddenResponsibilities": [
+        "architecture redesign",
+        "public API changes",
+        "production database changes"
+      ],
+      "defaultTier": "cheap",
+      "allowedTiers": [
+        "free",
+        "cheap",
+        "balanced"
+      ],
+      "maxMultiplier": 2,
+      "allowedTools": [
+        "edit",
+        "create",
+        "read",
+        "search",
+        "thrift:workspace_info",
+        "thrift:find_files",
+        "thrift:grep_text",
+        "thrift:rank_files",
+        "thrift:file_window",
+        "governor:record_tool_call",
+        "governor:patch_check",
+        "governor:status"
+      ],
+      "contextPolicy": "bounded",
+      "approvalPolicy": "none",
+      "memoryPolicy": "recall_startup"
+    },
+    {
+      "id": "architect",
+      "description": "Designs cross-package interfaces, integration patterns, and module-level architecture.",
+      "responsibilities": [
+        "cross-package design",
+        "interface definition",
+        "module coordination",
+        "integration patterns",
+        "API design review"
+      ],
+      "forbiddenResponsibilities": [
+        "direct implementation without plan approval",
+        "memory writing",
+        "budget tracking"
+      ],
+      "defaultTier": "balanced",
+      "allowedTiers": [
+        "cheap",
+        "balanced"
+      ],
+      "maxMultiplier": 3,
+      "allowedTools": [
+        "read",
+        "search",
+        "plan"
+      ],
+      "contextPolicy": "full",
+      "approvalPolicy": "if_expensive",
+      "memoryPolicy": "recall_full"
+    },
+    {
+      "id": "deep-architect",
+      "description": "Rare high-impact architecture: MCP ecosystem redesign, public API, major agentic coordination.",
+      "responsibilities": [
+        "major architecture decisions",
+        "MCP ecosystem design",
+        "public API design",
+        "agentic coordination strategy",
+        "cross-system memory and budget coordination"
+      ],
+      "forbiddenResponsibilities": [
+        "direct implementation without plan approval",
+        "routine code edits",
+        "documentation updates"
+      ],
+      "defaultTier": "expensive",
+      "allowedTiers": [
+        "expensive"
+      ],
+      "maxMultiplier": 15,
+      "allowedTools": [
+        "read",
+        "search",
+        "plan"
+      ],
+      "contextPolicy": "full",
+      "approvalPolicy": "always",
+      "memoryPolicy": "recall_full"
+    },
+    {
+      "id": "memory-feedback-writer",
+      "description": "Writes memory feedback and curates Mnemo retrieval alias proposals. Does not implement code.",
+      "responsibilities": [
+        "write interaction logs",
+        "write hippocampus entries",
+        "write agent feedback",
+        "record memory candidates",
+        "review alias proposals",
+        "approve evidence-backed aliases",
+        "reject weak alias proposals"
+      ],
+      "forbiddenResponsibilities": [
+        "code implementation",
+        "architecture decisions",
+        "test fixing",
+        "file editing"
+      ],
+      "defaultTier": "cheap",
+      "allowedTiers": [
+        "free",
+        "cheap"
+      ],
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "mnemo:record",
+        "mnemo:search",
+        "mnemo:get",
+        "mnemo:maintenance",
+        "mnemo:doctor"
+      ],
+      "contextPolicy": "minimal",
+      "approvalPolicy": "none",
+      "memoryPolicy": "none"
+    },
+    {
+      "id": "workflow-router",
+      "description": "Selects and coordinates routing of tasks to workflows and specialists.",
+      "responsibilities": [
+        "task classification",
+        "workflow selection",
+        "specialist assignment",
+        "model tier recommendation"
+      ],
+      "forbiddenResponsibilities": [
+        "task implementation",
+        "direct code edits",
+        "memory writing"
+      ],
+      "defaultTier": "cheap",
+      "allowedTiers": [
+        "free",
+        "cheap"
+      ],
+      "maxMultiplier": 1,
+      "allowedTools": [
+        "router"
+      ],
+      "contextPolicy": "minimal",
+      "approvalPolicy": "none",
+      "memoryPolicy": "recall_startup"
+    }
+  ]
+}
