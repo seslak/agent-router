@@ -17,12 +17,17 @@
         "public API changes",
         "database schema changes"
       ],
+      "domains": [
+        "code",
+        "refactor",
+        "config"
+      ],
       "defaultTier": "cheap",
       "allowedTiers": [
         "free",
         "cheap"
       ],
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "edit",
         "create",
@@ -48,13 +53,18 @@
         "cross-package redesign",
         "production code architecture"
       ],
+      "domains": [
+        "tests",
+        "debugging",
+        "quality"
+      ],
       "defaultTier": "cheap",
       "allowedTiers": [
         "free",
         "cheap",
         "balanced"
       ],
-      "maxMultiplier": 3,
+      "maxCredits": 25,
       "allowedTools": [
         "edit",
         "read",
@@ -81,12 +91,17 @@
         "architecture decisions",
         "test implementation"
       ],
+      "domains": [
+        "docs",
+        "release",
+        "knowledge"
+      ],
       "defaultTier": "cheap",
       "allowedTiers": [
         "free",
         "cheap"
       ],
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "edit",
         "create",
@@ -112,13 +127,18 @@
         "public API changes",
         "production database changes"
       ],
+      "domains": [
+        "tooling",
+        "integration",
+        "operations"
+      ],
       "defaultTier": "cheap",
       "allowedTiers": [
         "free",
         "cheap",
         "balanced"
       ],
-      "maxMultiplier": 2,
+      "maxCredits": 15,
       "allowedTools": [
         "edit",
         "create",
@@ -152,12 +172,17 @@
         "memory writing",
         "budget tracking"
       ],
+      "domains": [
+        "architecture",
+        "integration",
+        "design"
+      ],
       "defaultTier": "balanced",
       "allowedTiers": [
         "cheap",
         "balanced"
       ],
-      "maxMultiplier": 3,
+      "maxCredits": 25,
       "allowedTools": [
         "read",
         "search",
@@ -182,11 +207,16 @@
         "routine code edits",
         "documentation updates"
       ],
+      "domains": [
+        "architecture",
+        "ecosystem",
+        "strategy"
+      ],
       "defaultTier": "expensive",
       "allowedTiers": [
         "expensive"
       ],
-      "maxMultiplier": 15,
+      "maxCredits": 100,
       "allowedTools": [
         "read",
         "search",
@@ -214,12 +244,17 @@
         "test fixing",
         "file editing"
       ],
+      "domains": [
+        "memory",
+        "aliases",
+        "feedback"
+      ],
       "defaultTier": "cheap",
       "allowedTiers": [
         "free",
         "cheap"
       ],
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "mnemo:record",
         "mnemo:search",
@@ -245,12 +280,17 @@
         "direct code edits",
         "memory writing"
       ],
+      "domains": [
+        "routing",
+        "workflow",
+        "policy"
+      ],
       "defaultTier": "cheap",
       "allowedTiers": [
         "free",
         "cheap"
       ],
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "router"
       ],

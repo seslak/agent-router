@@ -1,6 +1,6 @@
 [project]
 name = "agent-router"
-version = "0.2.2"
+version = "0.5.2"
 description = "Local-first workflow/specialist/model-tier router for MCP-capable coding agents"
 requires-python = ">=3.9"
 dependencies = []

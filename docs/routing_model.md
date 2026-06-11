@@ -1,68 +1,36 @@
 # Agent Router: Routing Model
 
-## Core principle
-
-Router v0.1.0 decides. It does not execute.
-
-Every route decision is a recommendation that the caller may accept, modify, or reject. Router never starts work, changes files, or spawns agents.
+Router ranks models and surfaces workflow policy. It does not execute tasks and it does not choose subagents.
 
 ## Decision order
 
-### 1. Workflow first
+1. Classify the task deterministically from `task-classes.json`
+2. Resolve workflow first when the class is workflow-backed
+3. Resolve specialist policy second
+4. Estimate AI credits from the named cost profile
+5. Filter to policy-compliant models and return the full ranked list
 
-If the task matches a known, repeatable workflow, use it. Workflows encode safe, bounded steps that have been validated for their task class.
+## Pricing
 
-Workflow selection takes priority over specialist selection because workflows contain explicit stop conditions and required checks. This prevents open-ended specialist improvisation on routine tasks.
+- Pricing is AI-credit based, not multiplier based
+- Long-context pricing is applied only when `estimated_input_tokens` exceeds the model threshold
+- Subagents cannot request extended context directly; the router only models the automatic billing row switch
+- Reasoning effort is intentionally not modeled here
 
-### 2. Specialist second
+Reserved extension point: an optional future `effortMultiplier` on cost profiles if Copilot later exposes per-dispatch reasoning control.
 
-If no workflow matches, or the route type is `SPECIALIST_AGENT`, select the appropriate specialist. Specialists bring judgment to tasks that cannot be reduced to a fixed workflow.
+## Ranked list contract
 
-Specialist selection is based on:
-- The task class from classification
-- The task policy from `policies.json`
-- Workflow default specialist (for workflow routes)
+`rankedModels` is the primary output:
 
-### 3. Model/cost tier third
+- sorted by effective tier, then estimated credits, then model id
+- capped at 20 entries
+- every entry carries its own approval evaluation
 
-After specialist is resolved, determine the allowed model tier. The specialist's `allowedTiers` and `maxMultiplier` combined with the task policy's `maxTier` define the allowed range.
+The orchestrating LLM chooses the subagent contextually, then dispatches it with the first ranked model present in that subagent's frontmatter.
 
-Router always selects the cheapest capable model within the allowed range. Expensive models require explicit approval.
+## Thrift and Governor
 
-### 4. Approval before expensive
-
-Routes that reach the `expensive` tier are blocked behind an approval gate. Router sets `approvalRequired: true` and provides an `approvalReason`. The caller must obtain approval before proceeding.
-
-Unknown model multipliers are treated as expensive (or blocked) per policy. This prevents silent cost escalation from misconfigured registries.
-
-### 5. Explain every decision
-
-Every route decision includes:
-- `reason`: machine-readable rationale
-- `nextStep`: plain-language next action
-- `matchedSignals`: which keywords triggered classification
-
-Use the `explain` action for a full human-readable breakdown.
-
-## Route types
-
-| Type | When used |
-|------|-----------|
-| `WORKFLOW` | Task matches a known repeatable workflow |
-| `SPECIALIST_AGENT` | Task needs specialist judgment, no fixed workflow |
-| `MANUAL_PLAN_FIRST` | High-risk, high-complexity, or high-blast-radius tasks |
-
-## Classification
-
-Classification is deterministic keyword/rule-based. No LLM calls. Keywords from `routing/task-classes.json` are matched against the normalized task text. The class with the highest phrase-weighted score wins.
-
-Unknown tasks fall back to the `unknown` class, which routes to the `architect` specialist.
-
-## What Router does not do
-
-- Router does not execute tasks
-- Router does not call other MCPs
-- Router does not switch models automatically
-- Router does not spawn subagents
-- Router does not modify memory or budgets
-- Router does not make binding decisions — only recommendations
+- Thrift may provide `estimated_input_tokens`
+- Router may provide `governorStartHint`
+- `AGENT_SUITE_SESSION_ID` is stamped into decision logs and outcomes for cross-suite correlation

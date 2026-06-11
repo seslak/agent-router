@@ -1,29 +1,29 @@
-"""Core routing logic for Agent Router v0.2.0.
-
-All routing is deterministic keyword/rule-based. No LLM calls, no external requests.
-"""
+"""Core routing logic for Agent Router."""
 
 from __future__ import annotations
 
+import math
+import os
 import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from pricing import PricingError, derive_tier, estimate_credits
 from schemas import (
-    TIER_ORDER,
-    ROUTE_TYPES,
-    RISK_LEVELS,
+    KNOWN_APPROVAL_CONDITIONS,
     MODEL_TIERS,
+    PRICING_APPLIED,
     REQUIRED_DECISION_FIELDS,
+    RISK_LEVELS,
+    ROUTE_TYPES,
+    TIER_ORDER,
 )
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
+_EXT_TOKEN_CAP = 10000000
+_OUTPUT_TOKEN_CAP = 1000000
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -34,112 +34,49 @@ def _new_decision_id() -> str:
 
 
 def _normalize_text(text: str) -> str:
-    return text.lower()
-
-
-def _text_words(text: str) -> set[str]:
-    return set(_WORD_RE.findall(text.lower()))
-
-
-def _score_task_class(task_lower: str, task_class: dict[str, Any]) -> tuple[int, list[str]]:
-    """Return (score, matched_signals) for one task class against normalized text."""
-    score = 0
-    signals: list[str] = []
-    for kw in task_class.get("keywords", []):
-        kw_lower = kw.lower()
-        if kw_lower in task_lower:
-            kw_words = _WORD_RE.findall(kw_lower)
-            score += len(kw_words)
-            signals.append(kw)
-    return score, signals
+    return str(text or "").lower()
 
 
 def _find_by_id(items: list[dict[str, Any]], item_id: str) -> dict[str, Any] | None:
+    needle = str(item_id or "").strip()
+    if not needle:
+        return None
     for item in items:
-        if item.get("id") == item_id:
+        if str(item.get("id", "")).strip() == needle:
             return item
     return None
 
 
 def _tier_rank(tier: str) -> int:
-    return TIER_ORDER.get(tier, 99)
+    return TIER_ORDER.get(str(tier or ""), 99)
 
 
-# ---------------------------------------------------------------------------
-# Classification
-# ---------------------------------------------------------------------------
-
-def _contains_any(text: str, phrases: list[str]) -> bool:
-    return any(phrase in text for phrase in phrases)
+def _match_phrase(task_lower: str, keyword: str) -> bool:
+    pattern = r"(?<![a-z0-9])" + re.escape(keyword.lower()) + r"(?![a-z0-9])"
+    return re.search(pattern, task_lower) is not None
 
 
-def _forced_task_class_id(task_lower: str) -> str | None:
-    """Return a high-priority class for ambiguous phrases.
+def _score_task_class(task_lower: str, task_class: dict[str, Any]) -> tuple[int, list[str]]:
+    score = 0
+    signals: list[str] = []
+    for kw in task_class.get("keywords", []) or []:
+        kw_lower = str(kw or "").strip().lower()
+        if not kw_lower:
+            continue
+        if _match_phrase(task_lower, kw_lower):
+            kw_words = _WORD_RE.findall(kw_lower)
+            score += max(1, len(kw_words))
+            signals.append(str(kw))
+    return score, signals
 
-    The registry scorer is intentionally simple, but some workflow terms overlap:
-    "import" can mean a small refactor or a test import error, and "server
-    entrypoint" can appear in both documentation and context-inspection tasks.
-    These guardrails keep workflow smoke prompts deterministic without making
-    registry ordering fragile.
-    """
-    repeated_test_signals = [
-        "still failing",
-        "repeated failure",
-        "after two fixes",
-        "after two attempts",
-        "deeply diagnose",
-        "keeps failing",
-        "hangs",
-        "flaky",
-    ]
-    if _contains_any(task_lower, repeated_test_signals):
-        return "test_failure_repeated"
 
-    simple_test_signals = [
-        "test fail",
-        "test failing",
-        "tests are failing",
-        "tests failing",
-        "failing test",
-        "test error",
-        "import error",
-        "test import error",
-        "broken test",
-        "diagnose and apply",
-    ]
-    if _contains_any(task_lower, simple_test_signals):
-        return "test_failure_simple"
-
-    docs_signals = [
-        "readme",
-        "docs",
-        "documentation",
-        "changelog",
-        "release note",
-        "release notes",
-    ]
-    docs_update_signals = [
-        "update",
-        "sync",
-        "write",
-        "rewrite",
-        "refresh",
-        "polish",
-        "improve",
-        "review and update",
-    ]
-    if _contains_any(task_lower, docs_signals) and _contains_any(task_lower, docs_update_signals):
-        return "documentation_update"
-
-    small_refactor_signals = [
-        "small refactor",
-        "deterministic code refactor",
-        "small deterministic code refactor",
-        "small deterministic refactor",
-    ]
-    if _contains_any(task_lower, small_refactor_signals):
-        return "small_code_edit"
-
+def _find_priority_class(task_lower: str, task_classes: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for task_class in task_classes:
+        phrases = task_class.get("priorityPhrases", []) or []
+        for phrase in phrases:
+            phrase_text = str(phrase or "").strip().lower()
+            if phrase_text and _match_phrase(task_lower, phrase_text):
+                return task_class
     return None
 
 
@@ -151,65 +88,24 @@ def _classification_from_class(
 ) -> dict[str, Any]:
     prefix = "Forced high-priority match" if forced else "Matched task class"
     return {
-        "taskClass": best_class["id"],
-        "routeType": best_class.get("routeType", "SPECIALIST_AGENT"),
-        "riskLevel": best_class.get("defaultRisk", "medium"),
-        "complexity": best_class.get("defaultComplexity", "medium"),
-        "blastRadius": best_class.get("defaultBlastRadius", "medium"),
+        "taskClass": str(best_class.get("id", "unknown")),
+        "routeType": str(best_class.get("routeType", "SPECIALIST_AGENT")),
+        "riskLevel": str(best_class.get("defaultRisk", "medium")),
+        "complexity": str(best_class.get("defaultComplexity", "medium")),
+        "blastRadius": str(best_class.get("defaultBlastRadius", "medium")),
         "reason": (
-            f"{prefix} '{best_class['id']}' "
-            f"(score {best_score}, signals: {', '.join(best_signals) or 'none'})."
+            "{0} '{1}' (score {2}, signals: {3}).".format(
+                prefix,
+                str(best_class.get("id", "unknown")),
+                int(best_score),
+                ", ".join(best_signals) or "none",
+            )
         ),
-        "matchedSignals": best_signals,
-        "suggestedHandler": best_class.get("preferredSpecialist", "architect"),
+        "matchedSignals": list(best_signals),
+        "suggestedHandler": str(best_class.get("preferredSpecialist", "architect")),
         "_preferredWorkflow": best_class.get("preferredWorkflow"),
         "_preferredSpecialist": best_class.get("preferredSpecialist"),
     }
-
-
-def classify_task(
-    task_text: str,
-    task_classes: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Classify a task using deterministic keyword rules.
-
-    Returns a classification dict with taskClass, routeType, risk/complexity/blast,
-    reason, matchedSignals, suggestedHandler, and internal _preferred* fields.
-    """
-    if not task_text:
-        return _fallback_classification("empty task text")
-
-    task_lower = _normalize_text(task_text)
-
-    forced_id = _forced_task_class_id(task_lower)
-    if forced_id:
-        forced_class = _find_by_id(task_classes, forced_id)
-        if forced_class:
-            score, signals = _score_task_class(task_lower, forced_class)
-            return _classification_from_class(forced_class, score, signals, forced=True)
-
-    best_class: dict[str, Any] | None = None
-    best_score = 0
-    best_signals: list[str] = []
-
-    for tc in task_classes:
-        if tc.get("id") == "unknown":
-            continue
-        score, signals = _score_task_class(task_lower, tc)
-        if score > best_score:
-            best_score = score
-            best_class = tc
-            best_signals = signals
-
-    if best_class is None or best_score == 0:
-        unknown = _find_by_id(task_classes, "unknown")
-        if unknown:
-            best_class = unknown
-            best_signals = []
-        else:
-            return _fallback_classification("no matching task class")
-
-    return _classification_from_class(best_class, best_score, best_signals)
 
 
 def _fallback_classification(reason: str = "") -> dict[str, Any]:
@@ -219,7 +115,7 @@ def _fallback_classification(reason: str = "") -> dict[str, Any]:
         "riskLevel": "medium",
         "complexity": "medium",
         "blastRadius": "medium",
-        "reason": f"Fallback classification used ({reason}).",
+        "reason": "Fallback classification used ({0}).".format(reason),
         "matchedSignals": [],
         "suggestedHandler": "architect",
         "_preferredWorkflow": None,
@@ -227,237 +123,195 @@ def _fallback_classification(reason: str = "") -> dict[str, Any]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Routing
-# ---------------------------------------------------------------------------
+def classify_task(task_text: str, task_classes: list[dict[str, Any]]) -> dict[str, Any]:
+    if not task_text:
+        return _fallback_classification("empty task text")
+    task_lower = _normalize_text(task_text)
+    forced = _find_priority_class(task_lower, task_classes)
+    if forced is not None:
+        score, signals = _score_task_class(task_lower, forced)
+        return _classification_from_class(forced, score, signals, forced=True)
 
-def route_task(
-    task_text: str,
-    registries: dict[str, Any],
-    params: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Produce a full route decision for the given task.
-
-    Steps:
-    1. Classify task
-    2. Resolve workflow (if WORKFLOW route type)
-    3. Resolve specialist
-    4. Get policy constraints
-    5. Find candidate models within tier/multiplier bounds
-    6. Select cheapest capable model
-    7. Determine approval requirement
-    8. Build and return RouteDecision
-    """
-    params = params or {}
-    task_classes = registries.get("task_classes", [])
-    workflows = registries.get("workflows", [])
-    specialists = registries.get("specialists", [])
-    all_models = registries.get("models", [])
-    policies = registries.get("policies", {})
-    default_policy = policies.get("defaultPolicy", {})
-    task_policies = policies.get("taskPolicies", {})
-
-    # Step 1: Classify
-    classification = classify_task(task_text, task_classes)
-    task_class = classification["taskClass"]
-    route_type = classification["routeType"]
-
-    # Step 2: Resolve workflow
-    workflow_id: str | None = None
-    workflow: dict[str, Any] | None = None
-    if route_type == "WORKFLOW":
-        preferred_wf = classification.get("_preferredWorkflow")
-        if preferred_wf:
-            workflow = _find_by_id(workflows, preferred_wf)
-            if workflow:
-                workflow_id = preferred_wf
-
-    # Step 3: Resolve specialist
-    specialist_id: str | None = None
-    if workflow:
-        specialist_id = workflow.get("specialistId") or workflow.get("defaultSpecialist")
-    if not specialist_id:
-        specialist_id = (
-            classification.get("_preferredSpecialist")
-            or task_policies.get(task_class, {}).get("preferredSpecialist")
-            or "architect"
-        )
-    specialist = _find_by_id(specialists, specialist_id) if specialist_id else None
-
-    # Step 4: Policy constraints
-    task_policy = task_policies.get(task_class, {})
-    policy_max_mult = float(task_policy.get("maxMultiplier", default_policy.get("maxDefaultMultiplier", 1)))
-    specialist_max_mult = float(specialist.get("maxMultiplier", 99)) if specialist else 99.0
-    max_multiplier = min(policy_max_mult, specialist_max_mult)
-
-    policy_max_tier = task_policy.get("maxTier", "expensive")
-    policy_min_tier = task_policy.get("minTier")
-    specialist_tiers = specialist.get("allowedTiers", ["cheap"]) if specialist else ["cheap"]
-    allowed_tiers = [
-        t for t in specialist_tiers
-        if _tier_rank(t) <= _tier_rank(policy_max_tier)
-        and (policy_min_tier is None or _tier_rank(t) >= _tier_rank(policy_min_tier))
-    ]
-
-    # Step 5: Find candidate models
-    candidates: list[dict[str, Any]] = []
-    for m in all_models:
-        m_tier = m.get("tier", "")
-        m_mult = m.get("premiumRequestMultiplier")
-        if m_mult is None:
-            behavior = default_policy.get("unknownMultiplierBehavior", "treat_as_expensive")
-            if behavior == "treat_as_expensive":
-                m_tier = "expensive"
-                m_mult = 5.0
-            else:
-                continue
-        if m_tier not in allowed_tiers:
+    best_class: dict[str, Any] | None = None
+    best_score = 0
+    best_signals: list[str] = []
+    for task_class in task_classes:
+        if str(task_class.get("id", "")) == "unknown":
             continue
-        if float(m_mult) > max_multiplier:
-            continue
-        candidates.append(dict(m, _effective_tier=m_tier, _effective_mult=float(m_mult)))
-
-    # Sort cheapest first
-    candidates.sort(key=lambda m: (_tier_rank(m.get("tier", "expensive")), m.get("premiumRequestMultiplier", 0)))
-
-    # Step 6: Handle blocked
-    if not candidates:
-        return _blocked_decision(
-            task=task_text,
-            classification=classification,
-            specialist_id=specialist_id,
-            specialist=specialist,
-            workflow_id=workflow_id,
-            workflow=workflow,
-            max_multiplier=max_multiplier,
-            allowed_tiers=allowed_tiers,
-            task_class=task_class,
-        )
-
-    selected = candidates[0]
-    model_tier = selected.get("tier", "cheap")
-    model_id = selected.get("id", "")
-
-    # Step 7: Approval
-    approval_required = False
-    approval_reason: str | None = None
-
-    if selected.get("requiresApproval", False):
-        approval_required = True
-        approval_reason = f"Model '{model_id}' requires explicit approval."
-
-    spec_approval = specialist.get("approvalPolicy", "none") if specialist else "none"
-    if spec_approval == "always":
-        approval_required = True
-        approval_reason = approval_reason or "Specialist policy requires approval for all routes."
-    elif spec_approval == "if_expensive" and model_tier == "expensive":
-        approval_required = True
-        approval_reason = approval_reason or "Expensive model tier requires specialist approval."
-
-    if default_policy.get("requireApprovalForExpensive", True) and model_tier == "expensive":
-        approval_required = True
-        approval_reason = approval_reason or "Policy requires approval for expensive model tier."
-
-    # Build outputs
-    allowed_tools: list[str] = []
-    if workflow:
-        allowed_tools = list(workflow.get("allowedTools", []))
-    elif specialist:
-        allowed_tools = list(specialist.get("allowedTools", []))
-
-    required_memory: list[str] = []
-    spec_ctx = specialist.get("contextPolicy", "minimal") if specialist else "minimal"
-    if spec_ctx in ("full", "bounded"):
-        required_memory = ["recall_startup"]
-
-    required_checks: list[str] = []
-    if workflow:
-        required_checks = list(workflow.get("requiredChecks", []))
-
-    next_step = _build_next_step(route_type, workflow_id, specialist_id, workflow, approval_required)
-
-    signals = classification.get("matchedSignals", [])
-    reason = (
-        f"Task classified as '{task_class}' "
-        f"(signals: {', '.join(signals) if signals else 'none'}). "
-        f"Route: {route_type}. "
-        f"Specialist: {specialist_id}. "
-        f"Model: {model_id} ({model_tier})."
-    )
-    if task_policy.get("minTier"):
-        reason += f" Minimum tier policy: {task_policy['minTier']}."
-
-    return {
-        "decisionId": _new_decision_id(),
-        "createdAt": _now_iso(),
-        "task": task_text,
-        "taskClass": task_class,
-        "routeType": route_type,
-        "workflowId": workflow_id,
-        "specialistId": specialist_id,
-        "modelTier": model_tier,
-        "selectedModelId": model_id,
-        "maxAllowedMultiplier": max_multiplier,
-        "estimatedCostClass": model_tier,
-        "approvalRequired": approval_required,
-        "approvalReason": approval_reason,
-        "riskLevel": classification.get("riskLevel", "medium"),
-        "complexity": classification.get("complexity", "medium"),
-        "blastRadius": classification.get("blastRadius", "medium"),
-        "allowedTools": allowed_tools,
-        "requiredMemory": required_memory,
-        "requiredChecks": required_checks,
-        "reason": reason,
-        "fallbackUsed": task_class == "unknown",
-        "blocked": False,
-        "blockReason": None,
-        "nextStep": next_step,
-    }
+        score, signals = _score_task_class(task_lower, task_class)
+        if score > best_score:
+            best_class = task_class
+            best_score = score
+            best_signals = signals
+    if best_class is None or best_score == 0:
+        unknown = _find_by_id(task_classes, "unknown")
+        if unknown is None:
+            return _fallback_classification("no matching task class")
+        return _classification_from_class(unknown, 0, [])
+    return _classification_from_class(best_class, best_score, best_signals)
 
 
-def _blocked_decision(
-    *,
-    task: str,
+def _optional_nonnegative_int(value: Any, field_name: str, cap: int) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("{0} must be an integer.".format(field_name))
+    if parsed < 0:
+        raise ValueError("{0} must be >= 0.".format(field_name))
+    return min(parsed, cap)
+
+
+def _resolve_specialist(
     classification: dict[str, Any],
-    specialist_id: str | None,
-    specialist: dict[str, Any] | None,
-    workflow_id: str | None,
+    task_policy: dict[str, Any],
     workflow: dict[str, Any] | None,
-    max_multiplier: float,
-    allowed_tiers: list[str],
-    task_class: str,
-) -> dict[str, Any]:
-    block_reason = (
-        f"No model found for task class '{task_class}' within allowed tiers "
-        f"{allowed_tiers or ['(none)']} and max multiplier {max_multiplier}. "
-        "Route is blocked. Check registry or policy configuration."
-    )
+    specialists: list[dict[str, Any]],
+    fallback_policy: dict[str, Any],
+) -> tuple[str | None, dict[str, Any] | None]:
+    specialist_id = ""
+    if workflow is not None:
+        specialist_id = str(workflow.get("specialistId") or workflow.get("defaultSpecialist") or "").strip()
+    if not specialist_id:
+        specialist_id = str(
+            classification.get("_preferredSpecialist")
+            or task_policy.get("preferredSpecialist")
+            or fallback_policy.get("onMissingSpecialist", "architect")
+            or "architect"
+        ).strip()
+    specialist = _find_by_id(specialists, specialist_id)
+    if specialist is None and specialist_id:
+        fallback_id = str(fallback_policy.get("onMissingSpecialist", "architect") or "architect").strip()
+        specialist = _find_by_id(specialists, fallback_id)
+        specialist_id = fallback_id if specialist is not None else specialist_id
+    return specialist_id or None, specialist
+
+
+def _allowed_tiers(task_policy: dict[str, Any], specialist: dict[str, Any] | None, workflow: dict[str, Any] | None) -> list[str]:
+    policy_max_tier = str(task_policy.get("maxTier", "expensive") or "expensive")
+    policy_min_tier = str(task_policy.get("minTier", "") or "").strip() or None
+    specialist_tiers = list((specialist or {}).get("allowedTiers", ["cheap"]))
+    tiers = [
+        str(tier)
+        for tier in specialist_tiers
+        if _tier_rank(str(tier)) <= _tier_rank(policy_max_tier)
+        and (policy_min_tier is None or _tier_rank(str(tier)) >= _tier_rank(policy_min_tier))
+    ]
+    workflow_model_tier = str((workflow or {}).get("modelTier", "") or "").strip()
+    if workflow_model_tier:
+        tiers = [tier for tier in tiers if _tier_rank(tier) <= _tier_rank(workflow_model_tier)]
+    return tiers
+
+
+def _compact_ranked_model(model: dict[str, Any], approval_rules: list[dict[str, Any]], default_policy: dict[str, Any], specialist: dict[str, Any] | None, threshold: int | None = None) -> dict[str, Any]:
+    approval = _entry_approval(model, approval_rules, default_policy, specialist, threshold)
     return {
-        "decisionId": _new_decision_id(),
-        "createdAt": _now_iso(),
-        "task": task,
-        "taskClass": task_class,
-        "routeType": classification.get("routeType", "SPECIALIST_AGENT"),
-        "workflowId": workflow_id,
-        "specialistId": specialist_id,
-        "modelTier": "blocked",
-        "selectedModelId": None,
-        "maxAllowedMultiplier": max_multiplier,
-        "estimatedCostClass": "blocked",
-        "approvalRequired": True,
-        "approvalReason": "Route is blocked. Manual review required.",
-        "riskLevel": classification.get("riskLevel", "medium"),
-        "complexity": classification.get("complexity", "medium"),
-        "blastRadius": classification.get("blastRadius", "medium"),
-        "allowedTools": [],
-        "requiredMemory": [],
-        "requiredChecks": [],
-        "reason": block_reason,
-        "fallbackUsed": task_class == "unknown",
-        "blocked": True,
-        "blockReason": block_reason,
-        "nextStep": "Route is blocked. Review policy and model registry configuration before proceeding.",
+        "rank": int(model["_rank"]),
+        "modelId": str(model.get("id", "")),
+        "displayName": str(model.get("displayName", "")),
+        "tier": str(model["_tier"]),
+        "estimatedCredits": float(model["_credits"]),
+        "pricingApplied": str(model["_pricing_applied"]),
+        "category": str(model.get("category", "")),
+        "releaseStatus": str(model.get("releaseStatus", "")),
+        "approvalRequired": bool(approval["approvalRequired"]),
+        "approvalConditions": list(approval["approvalConditions"]),
     }
+
+
+def _entry_approval(
+    model: dict[str, Any],
+    approval_rules: list[dict[str, Any]],
+    default_policy: dict[str, Any],
+    specialist: dict[str, Any] | None,
+    threshold_input_tokens: int | None,
+) -> dict[str, Any]:
+    conditions: list[str] = []
+    first_reason = None
+    specialist_policy = str((specialist or {}).get("approvalPolicy", "none"))
+    effective_tier = str(model.get("_tier", model.get("tier", "")))
+    for rule in approval_rules:
+        condition = str(rule.get("condition", "")).strip()
+        if condition == "tier_expensive":
+            matched = effective_tier == "expensive" and bool(default_policy.get("requireApprovalForExpensive", True))
+        elif condition == "model_requires_approval":
+            matched = bool(model.get("requiresApproval", False))
+        elif condition == "specialist_approval_always":
+            if specialist_policy == "always":
+                matched = True
+            elif specialist_policy == "if_expensive":
+                matched = effective_tier == "expensive"
+            else:
+                matched = False
+        elif condition == "long_context_pricing":
+            matched = str(model.get("_pricing_applied", "default")) == "long_context"
+        else:
+            matched = False
+        if matched:
+            conditions.append(condition)
+            if first_reason is None:
+                first_reason = str(rule.get("reason", "")).strip() or None
+    return {
+        "approvalRequired": len(conditions) > 0,
+        "approvalConditions": conditions,
+        "approvalReason": first_reason,
+        "thresholdInputTokens": threshold_input_tokens,
+    }
+
+
+def _cost_profile_name(policies: dict[str, Any], task_policy: dict[str, Any]) -> str:
+    name = str(task_policy.get("costProfile", "medium") or "medium")
+    if name in (policies.get("costProfiles", {}) or {}):
+        return name
+    return "medium"
+
+
+def _cost_profile(policies: dict[str, Any], name: str, estimated_output_tokens: int | None) -> dict[str, Any]:
+    profiles = policies.get("costProfiles", {}) or {}
+    selected = dict(profiles.get(name, profiles.get("medium", {"inputTokens": 30000, "cachedInputTokens": 15000, "outputTokens": 5000})))
+    if estimated_output_tokens is not None:
+        selected["outputTokens"] = estimated_output_tokens
+    return selected
+
+
+def _resolve_workflow(classification: dict[str, Any], workflows: list[dict[str, Any]]) -> tuple[str | None, dict[str, Any] | None]:
+    if str(classification.get("routeType", "")) != "WORKFLOW":
+        return None, None
+    preferred = str(classification.get("_preferredWorkflow") or "").strip()
+    if not preferred:
+        return None, None
+    workflow = _find_by_id(workflows, preferred)
+    return (preferred, workflow) if workflow is not None else (None, None)
+
+
+def _apply_candidate_filter(
+    models: list[dict[str, Any]],
+    candidate_models: list[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    if not candidate_models:
+        return list(models), []
+    ids = {item.get("id"): item for item in models}
+    filtered = []
+    unknown = []
+    for model_id in candidate_models:
+        if model_id in ids:
+            filtered.append(ids[model_id])
+        else:
+            unknown.append(model_id)
+    return filtered, unknown
+
+
+def _governor_start_hint(task_text: str, workflow: dict[str, Any] | None) -> dict[str, Any] | None:
+    if workflow is None:
+        return None
+    profile = str(workflow.get("profile", "")).strip()
+    if not profile:
+        return None
+    task = str(task_text or "").strip()
+    if len(task) > 240:
+        task = task[:240]
+    return {"action": "start_run", "params": {"task": task, "profile": profile}}
 
 
 def _build_next_step(
@@ -471,146 +325,406 @@ def _build_next_step(
     if approval_required:
         parts.append("Obtain approval before proceeding.")
     if route_type == "WORKFLOW" and workflow_id:
-        parts.append(f"Use workflow '{workflow_id}'.")
+        parts.append("Use workflow '{0}'.".format(workflow_id))
         if specialist_id:
-            parts.append(f"Assign specialist '{specialist_id}'.")
+            parts.append("Assign specialist '{0}'.".format(specialist_id))
     elif route_type == "SPECIALIST_AGENT" and specialist_id:
-        parts.append(f"Assign specialist '{specialist_id}'.")
+        parts.append("Assign specialist '{0}'.".format(specialist_id))
     elif route_type == "MANUAL_PLAN_FIRST":
         parts.append("Create a written plan before beginning implementation.")
         if specialist_id:
-            parts.append(f"Proposed specialist: '{specialist_id}'.")
+            parts.append("Proposed specialist: '{0}'.".format(specialist_id))
     if workflow and workflow.get("requiredChecks"):
-        parts.append(f"Run checks: {', '.join(workflow['requiredChecks'])}.")
+        parts.append("Run checks: {0}.".format(", ".join(str(item) for item in workflow.get("requiredChecks", []))))
     return " ".join(parts) if parts else "Proceed with recommended route."
 
 
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
+def _blocked_decision(
+    *,
+    task: str,
+    classification: dict[str, Any],
+    specialist_id: str | None,
+    workflow_id: str | None,
+    workflow: dict[str, Any] | None,
+    max_credits: float,
+    allowed_tiers: list[str],
+    cost_profile_name: str,
+    estimated_input_tokens: int | None,
+    registry_as_of: str,
+    skipped: dict[str, int],
+    warnings: list[str],
+    block_reason: str,
+    ideal_model_id: str | None = None,
+    candidate_constraint: dict[str, Any] | None = None,
+    unknown_candidate_models: list[str] | None = None,
+) -> dict[str, Any]:
+    route_type = str(classification.get("routeType", "SPECIALIST_AGENT"))
+    matched_signals = list(classification.get("matchedSignals", []))
+    return {
+        "decisionId": _new_decision_id(),
+        "createdAt": _now_iso(),
+        "sessionId": os.environ.get("AGENT_SUITE_SESSION_ID", "").strip() or None,
+        "task": task,
+        "taskClass": str(classification.get("taskClass", "unknown")),
+        "routeType": route_type,
+        "workflowId": workflow_id,
+        "specialistId": specialist_id,
+        "modelTier": "blocked",
+        "selectedModelId": None,
+        "modelCategory": "",
+        "maxAllowedCredits": float(max_credits),
+        "maxAllowedMultiplier": None,
+        "estimatedCredits": None,
+        "estimatedCostClass": "blocked",
+        "costProfile": cost_profile_name,
+        "pricingApplied": "blocked",
+        "estimatedInputTokens": estimated_input_tokens,
+        "registryAsOf": registry_as_of,
+        "approvalRequired": True,
+        "approvalReason": "Route is blocked. Manual review required.",
+        "approvalConditions": [],
+        "riskLevel": str(classification.get("riskLevel", "medium")),
+        "complexity": str(classification.get("complexity", "medium")),
+        "blastRadius": str(classification.get("blastRadius", "medium")),
+        "allowedTools": list((workflow or {}).get("allowedTools", [])),
+        "requiredMemory": [],
+        "requiredChecks": list((workflow or {}).get("requiredChecks", [])),
+        "reason": block_reason,
+        "matchedSignals": matched_signals,
+        "fallbackUsed": str(classification.get("taskClass", "unknown")) == "unknown",
+        "blocked": True,
+        "blockReason": block_reason,
+        "nextStep": "Route is blocked. Review policy and model registry configuration before proceeding.",
+        "rankedModels": [],
+        "skipped": skipped,
+        "warnings": warnings,
+        "unknownCandidateModels": list(unknown_candidate_models or []),
+        "candidateConstraint": candidate_constraint or {"applied": False},
+        "governorStartHint": _governor_start_hint(task, workflow),
+        "idealModelId": ideal_model_id,
+    }
 
-def validate_decision(decision: dict[str, Any]) -> dict[str, Any]:
-    """Validate a route decision dict. Returns {valid, issues, warnings}."""
-    issues: list[str] = []
+
+def route_task(task_text: str, registries: dict[str, Any], params: dict[str, Any] | None = None) -> dict[str, Any]:
+    params = params or {}
+    task_classes = list(registries.get("task_classes", []))
+    workflows = list(registries.get("workflows", []))
+    specialists = list(registries.get("specialists", []))
+    all_models = list(registries.get("models", []))
+    policies = dict(registries.get("policies", {}))
+    default_policy = dict(policies.get("defaultPolicy", {}))
+    task_policies = dict(policies.get("taskPolicies", {}))
+    approval_rules = list(policies.get("approvalRules", []))
+    tier_bands = dict(policies.get("tierBands", {"cheapMaxCredits": 5, "balancedMaxCredits": 25}))
+    fallback_policy = dict(policies.get("fallbackPolicy", {}))
+    registry_as_of = str(registries.get("_models_as_of") or policies.get("asOf") or registries.get("models_as_of") or "")
+    if not registry_as_of and isinstance(registries.get("_models_payload"), dict):
+        registry_as_of = str(registries["_models_payload"].get("asOf", ""))
+
+    estimated_input_tokens = _optional_nonnegative_int(params.get("estimated_input_tokens"), "estimated_input_tokens", _EXT_TOKEN_CAP)
+    estimated_output_tokens = _optional_nonnegative_int(params.get("estimated_output_tokens"), "estimated_output_tokens", _OUTPUT_TOKEN_CAP)
+
+    candidate_models_raw = params.get("candidate_models")
+    candidate_models: list[str] = []
+    if isinstance(candidate_models_raw, list):
+        for item in candidate_models_raw[:50]:
+            if isinstance(item, str):
+                value = item.strip().lower()
+                if value:
+                    candidate_models.append(value)
+
+    classification = classify_task(task_text, task_classes)
+    task_class = str(classification.get("taskClass", "unknown"))
+    if task_class == "unknown" and str(fallback_policy.get("onUnknownTaskClass", "use_unknown_class")) != "use_unknown_class":
+        classification = _fallback_classification("unknown-task-class disabled by policy")
+        task_class = str(classification.get("taskClass", "unknown"))
+    workflow_id, workflow = _resolve_workflow(classification, workflows)
+    task_policy = dict(task_policies.get(task_class, {}))
+    specialist_id, specialist = _resolve_specialist(classification, task_policy, workflow, specialists, fallback_policy)
+
+    cost_profile_name = _cost_profile_name(policies, task_policy)
+    cost_profile = _cost_profile(policies, cost_profile_name, estimated_output_tokens)
+
+    policy_max = float(task_policy.get("maxCredits", default_policy.get("maxDefaultCredits", 10)) or default_policy.get("maxDefaultCredits", 10) or 10)
+    specialist_max = float((specialist or {}).get("maxCredits", math.inf))
+    workflow_max = float((workflow or {}).get("maxCredits", math.inf))
+    max_credits = min(policy_max, specialist_max, workflow_max)
+    allowed_tiers = _allowed_tiers(task_policy, specialist, workflow)
+
+    preview_allowed = bool(default_policy.get("allowPreviewModels", False))
+    unknown_pricing_behavior = str(default_policy.get("unknownPricingBehavior", "block") or "block")
+    skipped = {"preview_skipped": 0, "unknown_pricing_skipped": 0, "over_budget_skipped": 0, "tier_filtered": 0}
     warnings: list[str] = []
 
+    def build_candidates(model_pool: list[dict[str, Any]], count_skips: bool) -> list[dict[str, Any]]:
+        candidates: list[dict[str, Any]] = []
+        for model in model_pool:
+            release_status = str(model.get("releaseStatus", "ga"))
+            if release_status == "public_preview" and not preview_allowed:
+                if count_skips:
+                    skipped["preview_skipped"] += 1
+                continue
+            try:
+                estimate = estimate_credits(model, cost_profile, estimated_input_tokens=estimated_input_tokens)
+            except PricingError:
+                if unknown_pricing_behavior == "block":
+                    if count_skips:
+                        skipped["unknown_pricing_skipped"] += 1
+                    continue
+                estimate = {
+                    "credits": float(tier_bands.get("balancedMaxCredits", 25)) + 1.0,
+                    "pricingApplied": "default",
+                    "thresholdInputTokens": None,
+                }
+            tier = derive_tier(float(estimate["credits"]), tier_bands)
+            if tier not in allowed_tiers:
+                if count_skips:
+                    skipped["tier_filtered"] += 1
+                continue
+            if float(estimate["credits"]) > max_credits:
+                if count_skips:
+                    skipped["over_budget_skipped"] += 1
+                continue
+            candidate = dict(model)
+            candidate["_credits"] = float(estimate["credits"])
+            candidate["_tier"] = tier
+            candidate["_pricing_applied"] = str(estimate["pricingApplied"])
+            candidate["_threshold_input_tokens"] = estimate.get("thresholdInputTokens")
+            candidates.append(candidate)
+        candidates.sort(key=lambda item: (_tier_rank(str(item["_tier"])), float(item["_credits"]), str(item.get("id", ""))))
+        for index, item in enumerate(candidates, start=1):
+            item["_rank"] = index
+        return candidates
+
+    unconstrained_candidates = build_candidates(all_models, count_skips=False)
+    filtered_models, unknown_candidate_models = _apply_candidate_filter(all_models, candidate_models)
+    constrained_candidates = build_candidates(filtered_models, count_skips=True) if candidate_models else build_candidates(all_models, count_skips=True)
+
+    candidate_constraint = {"applied": bool(candidate_models)}
+    if candidate_models:
+        ideal_model_id = str(unconstrained_candidates[0].get("id", "")) if unconstrained_candidates else None
+        ideal_in_candidates = any(str(item.get("id", "")) == ideal_model_id for item in constrained_candidates) if ideal_model_id else False
+        candidate_constraint = {
+            "applied": True,
+            "idealModelId": ideal_model_id,
+            "idealModelInCandidates": ideal_in_candidates,
+        }
+        if unknown_candidate_models:
+            warnings.append("Unknown candidate model ids were ignored.")
+        if not constrained_candidates and unconstrained_candidates:
+            block_reason = "Candidate model constraint blocked all viable routes. Ideal available model is {0}.".format(ideal_model_id)
+            return _blocked_decision(
+                task=task_text,
+                classification=classification,
+                specialist_id=specialist_id,
+                workflow_id=workflow_id,
+                workflow=workflow,
+                max_credits=max_credits,
+                allowed_tiers=allowed_tiers,
+                cost_profile_name=cost_profile_name,
+                estimated_input_tokens=estimated_input_tokens,
+                registry_as_of=registry_as_of,
+                skipped=skipped,
+                warnings=warnings,
+                block_reason=block_reason,
+                ideal_model_id=ideal_model_id,
+                candidate_constraint=candidate_constraint,
+                unknown_candidate_models=unknown_candidate_models,
+            )
+
+    candidates = constrained_candidates
+    if not candidates:
+        block_reason = (
+            "No model found for task class '{0}' within allowed tiers {1} and max credits {2}."
+            .format(task_class, allowed_tiers or ["(none)"], max_credits)
+        )
+        return _blocked_decision(
+            task=task_text,
+            classification=classification,
+            specialist_id=specialist_id,
+            workflow_id=workflow_id,
+            workflow=workflow,
+            max_credits=max_credits,
+            allowed_tiers=allowed_tiers,
+            cost_profile_name=cost_profile_name,
+            estimated_input_tokens=estimated_input_tokens,
+            registry_as_of=registry_as_of,
+            skipped=skipped,
+            warnings=warnings,
+            block_reason=block_reason,
+            ideal_model_id=str(unconstrained_candidates[0].get("id", "")) if unconstrained_candidates else None,
+            candidate_constraint=candidate_constraint,
+            unknown_candidate_models=unknown_candidate_models,
+        )
+
+    ranked_models_raw = candidates[:20]
+    ranked_models = []
+    for item in ranked_models_raw:
+        ranked_models.append(_compact_ranked_model(item, approval_rules, default_policy, specialist, item.get("_threshold_input_tokens")))
+
+    selected = ranked_models_raw[0]
+    selected_approval = _entry_approval(selected, approval_rules, default_policy, specialist, selected.get("_threshold_input_tokens"))
+
+    route_type = str(classification.get("routeType", "SPECIALIST_AGENT"))
+    matched_signals = list(classification.get("matchedSignals", []))
+    selected_model_id = str(selected.get("id", ""))
+    model_tier = str(selected["_tier"])
+    reason = (
+        "Task classified as '{0}' (signals: {1}). Route: {2}. Specialist: {3}. Model: {4} ({5}, {6} credits)."
+        .format(
+            task_class,
+            ", ".join(matched_signals) if matched_signals else "none",
+            route_type,
+            specialist_id,
+            selected_model_id,
+            model_tier,
+            selected["_credits"],
+        )
+    )
+
+    decision = {
+        "decisionId": _new_decision_id(),
+        "createdAt": _now_iso(),
+        "sessionId": os.environ.get("AGENT_SUITE_SESSION_ID", "").strip() or None,
+        "task": task_text,
+        "taskClass": task_class,
+        "routeType": route_type,
+        "workflowId": workflow_id,
+        "specialistId": specialist_id,
+        "modelTier": model_tier,
+        "selectedModelId": selected_model_id,
+        "modelCategory": str(selected.get("category", "")),
+        "maxAllowedCredits": float(max_credits),
+        "maxAllowedMultiplier": None,
+        "estimatedCredits": float(selected["_credits"]),
+        "estimatedCostClass": model_tier,
+        "costProfile": cost_profile_name,
+        "pricingApplied": str(selected["_pricing_applied"]),
+        "estimatedInputTokens": estimated_input_tokens,
+        "registryAsOf": registry_as_of,
+        "approvalRequired": bool(selected_approval["approvalRequired"]),
+        "approvalReason": selected_approval["approvalReason"],
+        "approvalConditions": list(selected_approval["approvalConditions"]),
+        "riskLevel": str(classification.get("riskLevel", "medium")),
+        "complexity": str(classification.get("complexity", "medium")),
+        "blastRadius": str(classification.get("blastRadius", "medium")),
+        "allowedTools": list((workflow or specialist or {}).get("allowedTools", [])),
+        "requiredMemory": ["recall_startup"] if str((specialist or {}).get("contextPolicy", "minimal")) in {"bounded", "full"} else [],
+        "requiredChecks": list((workflow or {}).get("requiredChecks", [])),
+        "reason": reason,
+        "matchedSignals": matched_signals,
+        "fallbackUsed": task_class == "unknown",
+        "blocked": False,
+        "blockReason": None,
+        "nextStep": _build_next_step(route_type, workflow_id, specialist_id, workflow, bool(selected_approval["approvalRequired"])),
+        "rankedModels": ranked_models,
+        "skipped": skipped,
+        "warnings": warnings,
+        "unknownCandidateModels": unknown_candidate_models,
+        "candidateConstraint": candidate_constraint,
+        "governorStartHint": _governor_start_hint(task_text, workflow),
+        "idealModelId": candidate_constraint.get("idealModelId") if candidate_constraint.get("applied") else None,
+    }
+    return decision
+
+
+def validate_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    issues: list[str] = []
+    warnings: list[str] = []
     if not isinstance(decision, dict):
         return {"valid": False, "issues": ["decision must be an object"], "warnings": []}
-
     for field in REQUIRED_DECISION_FIELDS:
         if field not in decision:
-            issues.append(f"Missing required field: {field}")
-        elif decision[field] is None or decision[field] == "":
-            issues.append(f"Required field '{field}' must not be null or empty")
+            issues.append("Missing required field: {0}".format(field))
+        elif decision[field] in (None, ""):
+            issues.append("Required field '{0}' must not be null or empty".format(field))
 
-    route_type = decision.get("routeType", "")
+    route_type = str(decision.get("routeType", ""))
     if route_type and route_type not in ROUTE_TYPES:
-        issues.append(f"routeType '{route_type}' is not valid (expected: {sorted(ROUTE_TYPES)})")
-
-    risk = decision.get("riskLevel", "")
+        issues.append("routeType '{0}' is not valid".format(route_type))
+    risk = str(decision.get("riskLevel", ""))
     if risk and risk not in RISK_LEVELS:
-        issues.append(f"riskLevel '{risk}' is not valid (expected: low, medium, high)")
-
-    model_tier = decision.get("modelTier", "")
+        issues.append("riskLevel '{0}' is not valid".format(risk))
+    model_tier = str(decision.get("modelTier", ""))
     if model_tier and model_tier not in MODEL_TIERS:
-        issues.append(f"modelTier '{model_tier}' is not valid (expected: {sorted(MODEL_TIERS)})")
-
+        issues.append("modelTier '{0}' is not valid".format(model_tier))
+    pricing_applied = str(decision.get("pricingApplied", ""))
+    if pricing_applied and pricing_applied not in PRICING_APPLIED:
+        issues.append("pricingApplied '{0}' is not valid".format(pricing_applied))
+    for condition in decision.get("approvalConditions", []) or []:
+        if str(condition) not in KNOWN_APPROVAL_CONDITIONS:
+            warnings.append("Unknown approval condition: {0}".format(condition))
+    ranked_models = decision.get("rankedModels")
+    if not isinstance(ranked_models, list):
+        issues.append("rankedModels must be a list")
     if decision.get("approvalRequired") is True and not decision.get("approvalReason"):
         warnings.append("approvalRequired is true but approvalReason is not set")
-
     if decision.get("blocked") is True and not decision.get("blockReason"):
         warnings.append("blocked is true but blockReason is not set")
-
     if decision.get("blocked") is False and decision.get("blockReason"):
         warnings.append("blockReason is set but blocked is false")
-
     return {"valid": len(issues) == 0, "issues": issues, "warnings": warnings}
 
 
-# ---------------------------------------------------------------------------
-# Explanation
-# ---------------------------------------------------------------------------
-
 def explain_decision(decision: dict[str, Any]) -> str:
-    """Return a human-readable explanation of a route decision."""
     lines: list[str] = []
-
-    decision_id = decision.get("decisionId", "N/A")
-    task = decision.get("task", "")
-    task_class = decision.get("taskClass", "unknown")
-    route_type = decision.get("routeType", "")
-    workflow_id = decision.get("workflowId")
-    specialist_id = decision.get("specialistId", "")
-    model_tier = decision.get("modelTier", "")
-    model_id = decision.get("selectedModelId", "")
-    approval_required = decision.get("approvalRequired", False)
-    approval_reason = decision.get("approvalReason") or ""
-    blocked = decision.get("blocked", False)
-    block_reason = decision.get("blockReason") or ""
-    reason = decision.get("reason") or ""
-    next_step = decision.get("nextStep") or ""
-    matched_signals = decision.get("matchedSignals") or []
-    risk = decision.get("riskLevel", "")
-    complexity = decision.get("complexity", "")
-    blast_radius = decision.get("blastRadius", "")
-
-    lines.append(f"Route Decision: {decision_id}")
-    task_display = (task[:120] + "...") if len(task) > 120 else task
-    lines.append(f"Task: {task_display}")
+    lines.append("Route Decision: {0}".format(decision.get("decisionId", "N/A")))
+    task = str(decision.get("task", ""))
+    lines.append("Task: {0}".format((task[:120] + "...") if len(task) > 120 else task))
     lines.append("")
-
     lines.append("## Classification")
-    lines.append(f"Task class: {task_class}")
-    if matched_signals:
-        lines.append(f"Matched signals: {', '.join(matched_signals)}")
-    if risk:
-        lines.append(f"Risk: {risk} | Complexity: {complexity} | Blast radius: {blast_radius}")
-
+    lines.append("Task class: {0}".format(decision.get("taskClass", "unknown")))
+    matched = decision.get("matchedSignals", []) or []
+    if matched:
+        lines.append("Matched signals: {0}".format(", ".join(str(item) for item in matched)))
+    lines.append(
+        "Risk: {0} | Complexity: {1} | Blast radius: {2}".format(
+            decision.get("riskLevel", ""),
+            decision.get("complexity", ""),
+            decision.get("blastRadius", ""),
+        )
+    )
     lines.append("")
-    lines.append("## Route Type")
-    if route_type == "WORKFLOW":
-        lines.append("Route type: WORKFLOW — matched to a known, repeatable workflow.")
-        if workflow_id:
-            lines.append(f"Workflow: {workflow_id}")
-    elif route_type == "SPECIALIST_AGENT":
-        lines.append("Route type: SPECIALIST_AGENT — requires specialist judgment.")
-    elif route_type == "MANUAL_PLAN_FIRST":
-        lines.append("Route type: MANUAL_PLAN_FIRST — high-complexity or high-risk; plan before implementing.")
-    else:
-        lines.append(f"Route type: {route_type}")
-
+    lines.append("## Route")
+    lines.append("Route type: {0}".format(decision.get("routeType", "")))
+    if decision.get("workflowId"):
+        lines.append("Workflow: {0}".format(decision.get("workflowId")))
+    lines.append("Specialist: {0}".format(decision.get("specialistId") or "(none)"))
     lines.append("")
-    lines.append("## Specialist")
-    lines.append(f"Specialist: {specialist_id or '(none)'}")
-
-    lines.append("")
-    lines.append("## Model / Cost Tier")
-    if blocked:
-        lines.append("Model tier: BLOCKED")
-        if block_reason:
-            lines.append(f"Block reason: {block_reason}")
-    else:
-        lines.append(f"Model tier: {model_tier}")
-        if model_id:
-            lines.append(f"Selected model: {model_id}")
-
+    lines.append("## Model")
+    lines.append("Selected model: {0}".format(decision.get("selectedModelId") or "(blocked)"))
+    lines.append("Tier: {0}".format(decision.get("modelTier", "")))
+    if decision.get("estimatedCredits") is not None:
+        lines.append("Estimated credits: {0}".format(decision.get("estimatedCredits")))
+    if decision.get("pricingApplied"):
+        lines.append("Pricing applied: {0}".format(decision.get("pricingApplied")))
     lines.append("")
     lines.append("## Approval")
-    if approval_required:
-        lines.append("Approval required: YES")
-        if approval_reason:
-            lines.append(f"Reason: {approval_reason}")
-    else:
-        lines.append("Approval required: no")
-
-    if next_step:
+    lines.append("Approval required: {0}".format("YES" if decision.get("approvalRequired") else "no"))
+    if decision.get("approvalReason"):
+        lines.append("Reason: {0}".format(decision.get("approvalReason")))
+    if decision.get("approvalConditions"):
+        lines.append("Conditions: {0}".format(", ".join(str(item) for item in decision.get("approvalConditions", []))))
+    if decision.get("blocked"):
+        lines.append("BLOCKED: {0}".format(decision.get("blockReason", "")))
+    if decision.get("rankedModels"):
+        lines.append("")
+        lines.append("## Ranked Models")
+        for item in decision.get("rankedModels", [])[:5]:
+            lines.append(
+                "- #{0} {1} ({2}, {3} credits)".format(
+                    item.get("rank"),
+                    item.get("modelId"),
+                    item.get("tier"),
+                    item.get("estimatedCredits"),
+                )
+            )
+    if decision.get("nextStep"):
         lines.append("")
         lines.append("## Next Action")
-        lines.append(next_step)
-
-    if reason:
+        lines.append(str(decision.get("nextStep")))
+    if decision.get("reason"):
         lines.append("")
         lines.append("## Routing Rationale")
-        lines.append(reason)
-
+        lines.append(str(decision.get("reason")))
     return "\n".join(lines)

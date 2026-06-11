@@ -13,7 +13,7 @@
       "profile": "analysis",
       "specialistId": "tooling-integrator",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "thrift.workspace_info",
@@ -60,7 +60,7 @@
       "profile": "general_work",
       "specialistId": "memory-feedback-writer",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "mnemo.search",
@@ -105,7 +105,7 @@
       "profile": "maintenance_work",
       "specialistId": "memory-feedback-writer",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "mnemo.maintenance",
@@ -156,7 +156,7 @@
       "profile": "documentation_write",
       "specialistId": "doc-writer",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "edit",
@@ -200,7 +200,7 @@
       "profile": "small_patch",
       "specialistId": "code-editor",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "edit",
@@ -246,7 +246,7 @@
       "profile": "debug_failure",
       "specialistId": "test-fixer",
       "modelTier": "balanced",
-      "maxMultiplier": 3,
+      "maxCredits": 25,
       "allowedTools": [
         "nexus",
         "edit",
@@ -291,7 +291,7 @@
       "profile": "maintenance_work",
       "specialistId": "tooling-integrator",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "read",
@@ -327,7 +327,7 @@
       "profile": "maintenance_work",
       "specialistId": "tooling-integrator",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "read",
@@ -366,7 +366,7 @@
       "profile": "maintenance_work",
       "specialistId": "tooling-integrator",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "read",
@@ -405,7 +405,7 @@
       "profile": "maintenance_work",
       "specialistId": "tooling-integrator",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "read",
@@ -446,7 +446,7 @@
       "profile": "maintenance_work",
       "specialistId": "tooling-integrator",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "read",
@@ -487,7 +487,7 @@
       "profile": "maintenance_work",
       "specialistId": "tooling-integrator",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "read",
@@ -528,7 +528,7 @@
       "profile": "maintenance_work",
       "specialistId": "tooling-integrator",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "read",
@@ -572,7 +572,7 @@
       "profile": "data_intake",
       "specialistId": "doc-writer",
       "modelTier": "cheap",
-      "maxMultiplier": 1,
+      "maxCredits": 5,
       "allowedTools": [
         "nexus",
         "edit",

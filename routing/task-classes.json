@@ -20,6 +20,14 @@
         "review and update documentation",
         "update readme"
       ],
+      "priorityPhrases": [
+        "readme",
+        "docs",
+        "documentation",
+        "changelog",
+        "release note",
+        "release notes"
+      ],
       "routeType": "WORKFLOW",
       "defaultRisk": "low",
       "defaultComplexity": "low",
@@ -42,6 +50,12 @@
         "single file",
         "one-file",
         "config key",
+        "small refactor",
+        "deterministic code refactor",
+        "small deterministic code refactor",
+        "small deterministic refactor"
+      ],
+      "priorityPhrases": [
         "small refactor",
         "deterministic code refactor",
         "small deterministic code refactor",
@@ -101,6 +115,18 @@
         "failing with an import error",
         "test import error"
       ],
+      "priorityPhrases": [
+        "test fail",
+        "test failing",
+        "tests are failing",
+        "tests failing",
+        "failing test",
+        "test error",
+        "import error",
+        "test import error",
+        "broken test",
+        "diagnose and apply"
+      ],
       "routeType": "WORKFLOW",
       "defaultRisk": "medium",
       "defaultComplexity": "medium",
@@ -121,6 +147,16 @@
         "keeps failing",
         "two attempts",
         "multiple attempts"
+      ],
+      "priorityPhrases": [
+        "still failing",
+        "repeated failure",
+        "after two fixes",
+        "after two attempts",
+        "deeply diagnose",
+        "keeps failing",
+        "hangs",
+        "flaky"
       ],
       "routeType": "SPECIALIST_AGENT",
       "defaultRisk": "medium",
